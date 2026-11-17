@@ -1,5 +1,9 @@
 @echo off
 setlocal
+if exist "%~dp0Slotbound-Controls.exe" (
+    start "" "%~dp0Slotbound-Controls.exe"
+    exit /b
+)
 set "SLOTBOUND_PANEL=%~dp0slotbound_controls.pyw"
 where pyw.exe >nul 2>&1
 if errorlevel 1 goto pythonw

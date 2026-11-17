@@ -1,0 +1,39 @@
+name: Windows portable release
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/windows-release.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - uses: msys2/setup-msys2@v2
+        id: msys
+        with:
+          msystem: UCRT64
+          update: true
+          install: mingw-w64-ucrt-x86_64-gcc
+      - name: Build the standalone executable
+        env:
+          MSYS_LOCATION: ${{ steps.msys.outputs.msys2-location }}
+        run: |
+          $env:PATH += ";$env:MSYS_LOCATION\ucrt64\bin"
+          python -m pip install pyinstaller==6.22.3
+          ./Build.ps1
+      - name: Publish the executable
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v0.2.0 dist/Slotbound-Controls.exe --target "$env:GITHUB_SHA" --title "Slotbound 概率控制台 v0.2.0" --notes "Windows x64 单文件版。下载 EXE 并双击运行，只需要已安装的 Steam 版 Slotbound。"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

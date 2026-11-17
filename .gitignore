@@ -8,3 +8,6 @@ profile.json
 paths.txt
 loaded.txt
 backups/
+build/
+dist/
+slotbound-launch.exe

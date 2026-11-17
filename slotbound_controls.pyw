@@ -1,5 +1,4 @@
 import ctypes
-import json
 import os
 from pathlib import Path
 import queue
@@ -15,10 +14,9 @@ from slotbound_profile import (
     valid_distribution, valid_symbols,
 )
 
-from slotbound_paths import DATA, selected_paths, save_paths, find_game, find_gdb
+from slotbound_paths import selected_game, save_game, find_game
+from launch_mod import launch
 
-
-WORK = Path(__file__).resolve().parent
 HIDDEN = subprocess.CREATE_NO_WINDOW
 LABELS = ("普通", "高级", "稀有", "传说", "棱彩")
 SYMBOL_LABELS = ("盾牌", "弓", "法杖", "马头", "尖帽", "王冠", "小丑")
@@ -64,32 +62,11 @@ def close_game(game):
         raise RuntimeError("游戏仍在运行。请在游戏里保存并退出后再试。")
 
 
-def start_mod(values, symbols, game, debugger):
+def start_mod(values, symbols, game):
     save_profile(values, symbols)
     if not process_running("steam.exe"):
         raise RuntimeError("配置已保存。请打开 Steam，再启动改版。")
-    env = {
-        **os.environ,
-        "SteamAppId": "4459590",
-        "SteamGameId": "4459590",
-        "SLOTBOUND_MOD_WEIGHTS": json.dumps(values),
-    }
-    if symbols is not None:
-        env["SLOTBOUND_MOD_SYMBOLS"] = json.dumps(symbols)
-    else:
-        env.pop("SLOTBOUND_MOD_SYMBOLS", None)
-    bootstrap = "python import runpy; globals().update(runpy.run_path(" + json.dumps(str(WORK / "launch_slotbound.py")) + "))"
-    log = DATA / "launch.log"
-    with log.open("wb") as output:
-        result = subprocess.run(
-            [debugger, "-nx", "-q", "-batch", "-ex", "set breakpoint pending on",
-             "-ex", bootstrap, "-x", WORK / "launch_slotbound.gdb", game],
-            env=env, cwd=game.parent, stdin=subprocess.DEVNULL,
-            stdout=output, stderr=subprocess.STDOUT,
-            creationflags=HIDDEN, timeout=40,
-        )
-    if result.returncode or b"Slotbound loaded the Campaign" not in log.read_bytes():
-        raise RuntimeError(f"改版未确认加载。启动日志在 {log}")
+    launch(game, values, symbols)
     return "改版已启动。战役与无尽使用已保存的配置。"
 
 
@@ -266,7 +243,7 @@ class Controls:
         self.root = root
         self.busy = False
         self.results = queue.Queue()
-        self.game, self.debugger = selected_paths()
+        self.game = selected_game()
         notice = "原版启动继续使用当前存档。"
         try:
             rarity, symbols = read_profile()
@@ -352,38 +329,37 @@ class Controls:
         dialog.grab_set()
         body = tk.Frame(dialog, bg=BG, padx=18, pady=16)
         body.pack(fill="both", expand=True)
-        variables = [tk.StringVar(value=str(value or "")) for value in (self.game, self.debugger)]
+        variable = tk.StringVar(value=str(self.game or ""))
 
-        def choose(index, filename):
-            chosen = filedialog.askopenfilename(parent=dialog, title=f"选择 {filename}",
-                                                filetypes=[(filename, filename), ("EXE", "*.exe")])
+        def choose():
+            chosen = filedialog.askopenfilename(parent=dialog, title="选择 Slotbound.exe",
+                                                filetypes=[("Slotbound.exe", "Slotbound.exe")])
             if chosen:
-                variables[index].set(chosen)
+                variable.set(chosen)
 
-        for index, filename in enumerate(("Slotbound.exe", "gdb.exe")):
-            row = index * 2
-            label(body, filename, 10).grid(row=row, column=0, sticky="w")
-            ttk.Entry(body, textvariable=variables[index], width=58).grid(row=row+1, column=0, pady=(3, 9))
-            button(body, "浏览", lambda i=index, name=filename: choose(i, name)).grid(row=row+1, column=1)
+        label(body, "Slotbound.exe", 10).grid(row=0, column=0, sticky="w")
+        ttk.Entry(body, textvariable=variable, width=58).grid(row=1, column=0, pady=(3, 9))
+        button(body, "浏览", choose).grid(row=1, column=1)
 
         def detect():
-            for variable, value in zip(variables, (find_game(), find_gdb())):
-                if value is not None:
-                    variable.set(str(value))
+            value = find_game()
+            if value is not None:
+                variable.set(str(value))
+            else:
+                messagebox.showinfo("路径设置", "没有找到游戏，请手动选择 Slotbound.exe。", parent=dialog)
 
         def save():
-            game, debugger = (Path(value.get()) if value.get().strip() else None for value in variables)
-            for path, name in ((game, "Slotbound.exe"), (debugger, "gdb.exe")):
-                if path and (not path.is_file() or path.name.lower() != name.lower()):
-                    messagebox.showerror("路径设置", f"请选择有效的 {name}。", parent=dialog)
-                    return
-            save_paths(game, debugger)
-            self.game, self.debugger = game, debugger
+            game = Path(variable.get().strip())
+            if not game.is_file() or game.name.lower() != "slotbound.exe":
+                messagebox.showerror("路径设置", "请选择有效的 Slotbound.exe。", parent=dialog)
+                return
+            save_game(game)
+            self.game = game
             self.show_status("已保存路径设置。")
             dialog.destroy()
 
-        button(body, "自动查找", detect).grid(row=4, column=0, sticky="w")
-        button(body, "保存", save, primary=True).grid(row=4, column=1)
+        button(body, "自动查找", detect).grid(row=2, column=0, sticky="w")
+        button(body, "保存", save, primary=True).grid(row=2, column=1)
 
 
     def begin(self, action, label):
@@ -437,13 +413,13 @@ class Controls:
         self.root.after(100, self.check_result)
 
     def launch_mod(self):
-        if not self.game or not self.game.is_file() or not self.debugger or not self.debugger.is_file():
+        if not self.game or not self.game.is_file():
             self.settings()
             return
         if self.rarity.valid() and (not self.symbol_on.get() or self.symbols.valid()):
             values = self.rarity.parsed()
             symbols = self.symbols.parsed() if self.symbol_on.get() else None
-            self.begin(lambda: start_mod(values, symbols, self.game, self.debugger), "启动改版")
+            self.begin(lambda: start_mod(values, symbols, self.game), "启动改版")
 
     def launch_vanilla(self):
         def original():

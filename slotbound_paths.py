@@ -1,7 +1,6 @@
 import os
 from pathlib import Path
 import re
-import shutil
 import winreg
 
 
@@ -49,23 +48,14 @@ def find_game(roots=None):
     return None
 
 
-def find_gdb():
-    candidates = (
-        shutil.which("gdb.exe"),
-        str(Path(os.sys.executable).with_name("gdb.exe")),
-        str(Path(os.environ.get("SystemDrive", "C:") + "/msys64/ucrt64/bin/gdb.exe")),
-    )
-    return next((Path(path) for path in candidates if path and Path(path).is_file()), None)
-
-
-def selected_paths():
+def selected_game():
     if SETTINGS.is_file():
         lines = SETTINGS.read_text(encoding="utf-8").splitlines()
-        if len(lines) == 2:
-            return tuple(Path(line) if line else None for line in lines)
-    return find_game(), find_gdb()
+        if lines and lines[0] and Path(lines[0]).is_file():
+            return Path(lines[0])
+    return find_game()
 
 
-def save_paths(game, gdb):
+def save_game(game):
     DATA.mkdir(parents=True, exist_ok=True)
-    SETTINGS.write_text(f"{game or ''}\n{gdb or ''}\n", encoding="utf-8")
+    SETTINGS.write_text(f"{game or ''}\n", encoding="utf-8")
