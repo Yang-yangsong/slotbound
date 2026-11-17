@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.log
+*.tmp
+*.dat
+*.bak
+profile.json
+paths.txt
+loaded.txt
+backups/
